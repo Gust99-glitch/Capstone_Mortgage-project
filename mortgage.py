@@ -21,6 +21,7 @@ KEEP_COLS = [
     "hoepa_status",     
     "total_loan_costs",     # proxy for fees
     "discount_points",       # proxy for fees
+  
 
     # user-provided-ish features (or close proxies)
     "income",                        # thousands of dollars
@@ -42,7 +43,7 @@ KEEP_COLS = [
     "county_code",
     "derived_msa-md",
     "activity_year",
-    "ageapplicant",
+    "applicant_age",
     "derived_race",
     "derived_ethnicity",
     "derived_sex",
