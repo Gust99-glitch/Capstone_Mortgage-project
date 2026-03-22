@@ -65,6 +65,7 @@ mortgage_data = mortgage_data[
 # 6. Drop rows where ANY “no-null” column is missing
 # -----------------------------------------
 NO_NULL_COLS = [
+    "lei",
     "action_taken",
     "interest_rate",
     "loan_amount",

@@ -1,0 +1,5 @@
+data_hmda_nc/
+cleaned_data/
+.venv/
+__pycache__/
+*.pyc

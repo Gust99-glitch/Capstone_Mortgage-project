@@ -13,6 +13,9 @@ os.makedirs(OUT_DIR, exist_ok=True)
 
 # Columns we care about (only keep these if they exist)
 KEEP_COLS = [
+    # lender identifier
+    "lei",                   # Legal Entity Identifier (lender)
+
     # target/outcomes
     "action_taken",          # approval/denial
     "interest_rate",
@@ -71,19 +74,28 @@ def api_csv_url(year: int) -> str:
         f"?states={STATE}&years={year}"
     )
 
-def download_csv(year: int, path: str) -> None:
+def download_csv(year: int, path: str, retries: int = 5) -> None:
     """
     Downloads HMDA CSV data for a given year using streaming
-    to avoid loading everything into memory.
+    to avoid loading everything into memory. Retries on failure.
     """
     url = api_csv_url(year)
-    print(f"Downloading {year}...")
-    with requests.get(url, stream=True, timeout=300) as r:
-        r.raise_for_status()
-        with open(path, "wb") as f:
-            for chunk in r.iter_content(chunk_size=1024 * 1024):
-                if chunk:
-                    f.write(chunk)
+    for attempt in range(1, retries + 1):
+        print(f"Downloading {year} (attempt {attempt})...")
+        try:
+            with requests.get(url, stream=True, timeout=300) as r:
+                r.raise_for_status()
+                with open(path, "wb") as f:
+                    for chunk in r.iter_content(chunk_size=1024 * 1024):
+                        if chunk:
+                            f.write(chunk)
+            return  # success
+        except Exception as e:
+            print(f"  Error: {e}")
+            if attempt == retries:
+                raise
+            import time
+            time.sleep(5 * attempt)
 
 # ---------------------------
 # Cleaning
@@ -124,6 +136,12 @@ def main():
     for year in YEARS:
         raw_csv = os.path.join(OUT_DIR, f"nc_{year}_raw.csv")
         clean_csv = os.path.join(OUT_DIR, f"nc_{year}.csv")
+
+        # Skip if already cleaned
+        if os.path.exists(clean_csv):
+            print(f"Skipping {year} (already done)")
+            all_years.append(pd.read_csv(clean_csv, low_memory=False))
+            continue
 
         # 1) Download
         download_csv(year, raw_csv)
