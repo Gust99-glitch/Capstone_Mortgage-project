@@ -122,8 +122,7 @@ def clean_one_year(csv_path: str) -> pd.DataFrame:
     if "interest_rate" in out.columns:
         out["interest_rate"] = pd.to_numeric(out["interest_rate"], errors="coerce")
 
-    if "applicant_age" in out.columns:
-        out["applicant_age"] = pd.to_numeric(out["applicant_age"], errors="coerce")
+    
 
     return out
 

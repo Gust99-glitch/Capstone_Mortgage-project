@@ -17,9 +17,7 @@ mortgage_data["interest_rate"] = pd.to_numeric(
     mortgage_data["interest_rate"], errors="coerce"
 )
 
-mortgage_data["applicant_age"] = pd.to_numeric(
-    mortgage_data["applicant_age"], errors="coerce"
-)
+
 
 # -----------------------------------------
 # 2. Remove commercial/business loans
