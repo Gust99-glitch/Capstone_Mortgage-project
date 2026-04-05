@@ -1,7 +1,7 @@
 import pandas as pd
 import plotly.express as px
 
-file_path = r"C:\Users\Carlin Crawford\Downloads\Countycode_Loans_Rate.csv"
+file_path = "data/Countycode_Loans_Rate.csv"
 
 df = pd.read_csv(file_path, low_memory=False)
 

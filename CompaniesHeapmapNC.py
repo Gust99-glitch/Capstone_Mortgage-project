@@ -5,9 +5,9 @@ import matplotlib.pyplot as plt
 # -----------------------------
 # FILE PATHS
 # -----------------------------
-csv_path = r"C:\Users\Carlin Crawford\Downloads\postal_code_summary1 (1).csv"
-zcta_path = r"C:\Users\Carlin Crawford\Downloads\tl_2020_us_zcta520\tl_2020_us_zcta520.shp"
-county_path = r"C:\Users\Carlin Crawford\Downloads\tl_2020_us_county\tl_2020_us_county.shp"
+csv_path = "data/postal_code_summary1.csv"
+zcta_path = "data/tl_2020_us_zcta520/tl_2020_us_zcta520.shp"
+county_path = "data/tl_2020_us_county/tl_2020_us_county.shp"
 
 # -----------------------------
 # 1) LOAD CSV

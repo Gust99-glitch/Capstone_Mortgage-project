@@ -5,8 +5,8 @@ import matplotlib.pyplot as plt
 # =========================================================
 # FILE PATHS
 # =========================================================
-csv_path = r"C:\Users\Carlin Crawford\Downloads\Countycode_Loans_Rate.csv"
-county_path = r"C:\Users\Carlin Crawford\Downloads\tl_2020_us_county\tl_2020_us_county.shp"
+csv_path = "data/Countycode_Loans_Rate.csv"
+county_path = "data/tl_2020_us_county/tl_2020_us_county.shp"
 
 # =========================================================
 # LOAD COUNTY-LEVEL LOAN DATA
