@@ -1,0 +1,9 @@
+Activity Year,Action Code,Outcome,Count,Percent
+2019,1,Loan originated,323845,54.25
+2019,2,Application approved but not accepted,12397,2.08
+2019,3,Application denied,87092,14.59
+2019,4,Application withdrawn by applicant,74729,12.52
+2019,5,File closed for incompleteness,28798,4.82
+2019,6,Purchased loan,69597,11.66
+2019,7,Preapproval request denied,228,0.04
+2019,8,Preapproval request approved but not accepted,274,0.05

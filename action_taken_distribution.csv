@@ -1,0 +1,9 @@
+Action Code,Outcome,Count,Percent
+1,Loan originated,2209168,55.58
+2,Application approved but not accepted,96315,2.42
+3,Application denied,556806,14.01
+4,Application withdrawn by applicant,504551,12.69
+5,File closed for incompleteness,228231,5.74
+6,Purchased loan,374636,9.42
+7,Preapproval request denied,1768,0.04
+8,Preapproval request approved but not accepted,3605,0.09
