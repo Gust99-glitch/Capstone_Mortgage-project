@@ -52,6 +52,35 @@ mortgage_data = mortgage_data[
     ~mortgage_data["debt_to_income_ratio"].isin(["NA", "Exempt"])
 ]
 
+# Define custom binning and overwrite the original column
+def custom_dti(val):
+    if pd.isna(val) or val in ["NA", "Exempt"]:
+        return None  # remove these
+    if val in ["<20%", "20%-<30%", "50%-60%", ">60%"]:
+        return val  # already a valid bin
+    try:
+        num = float(val)
+        if num < 20:
+            return "<20%"
+        elif num < 30:
+            return "20%-<30%"
+        elif num < 40:
+            return "30%-<40%"
+        elif num < 50:
+            return "40%-<50%"
+        elif num <= 60:
+            return "50%-60%"
+        else:
+            return ">60%"
+    except:
+        return None
+
+# Apply cleaning and overwrite the same column
+mortgage_data["debt_to_income_ratio"] = mortgage_data["debt_to_income_ratio"].apply(custom_dti)
+
+# Remove invalid / NA / Exempt rows
+mortgage_data = mortgage_data[mortgage_data["debt_to_income_ratio"].notna()]
+
 # -----------------------------------------
 # 5. Remove invalid conforming_loan_limit values
 # -----------------------------------------
@@ -112,3 +141,5 @@ mortgage_data.to_csv(cleaned_path, index=False)
 
 print("Final dataset shape:", mortgage_data.shape)
 print(mortgage_data.head())
+
+print(mortgage_data["debt_to_income_ratio"].unique())
