@@ -1,6 +1,7 @@
 import os
 import requests
 import pandas as pd
+from tqdm import tqdm
 
 # ---------------------------
 # Configuration
@@ -11,57 +12,24 @@ OUT_DIR = "data_hmda_nc"
 
 os.makedirs(OUT_DIR, exist_ok=True)
 
-# Columns we care about (only keep these if they exist)
-KEEP_COLS = [
-    # lender identifier
-    "lei",                   # Legal Entity Identifier (lender)
-
-    # target/outcomes
-    "action_taken",          # approval/denial
-    "interest_rate",
-    "loan_amount",
-    "rate_spread",          # interest rate spread (proxy for risk)
-    "hoepa_status",     
-    "total_loan_costs",     # proxy for fees
-    "discount_points",       # proxy for fees
-  
-
-    # user-provided-ish features (or close proxies)
-    "income",                        # thousands of dollars
-    "debt_to_income_ratio",          # binned categories                                
-    "property_value",
-    "lender_credits",
-    "denial_reason-1",                 # top reason for denial (if denied)
-   
-    # context features
-    "loan_term",
-    "loan_purpose",
-    "loan_type",
-    "occupancy_type",
-    "derived_loan_product_type",
-    "derived_dwelling_category",
-    "conforming_loan_limit",
-
-    # geography/time/demographics
-    "county_code",
-    "derived_msa-md",
-    "activity_year",
-    "applicant_age",
-    "derived_race",
-    "derived_ethnicity",
-    "derived_sex",
-    "business_or_commercial_purpose",
-   
-   # census tract-level features (proxies for neighborhood context)
-    "tract_to_msa_income_percentage",
-    "tract_population",
-    "tract_minority_population_percentage",
-    "ffiec_msa_md_median_family_income",
-    "tract_owner_occupied_units",
-    "tract_one_to_four_family_homes",
-    "tract_median_age_of_housing_units",
-
+# The 35 columns we originally hand-picked (kept here for reference only)
+# Feature selection will now be done by the model on ALL available columns
+KEEP_COLS_ORIGINAL = [
+    "lei", "action_taken", "interest_rate", "loan_amount", "rate_spread",
+    "hoepa_status", "total_loan_costs", "discount_points", "income",
+    "debt_to_income_ratio", "property_value", "lender_credits", "denial_reason-1",
+    "loan_term", "loan_purpose", "loan_type", "occupancy_type",
+    "derived_loan_product_type", "derived_dwelling_category", "conforming_loan_limit",
+    "county_code", "derived_msa-md", "activity_year", "applicant_age",
+    "derived_race", "derived_ethnicity", "derived_sex", "business_or_commercial_purpose",
+    "tract_to_msa_income_percentage", "tract_population", "tract_minority_population_percentage",
+    "ffiec_msa_md_median_family_income", "tract_owner_occupied_units",
+    "tract_one_to_four_family_homes", "tract_median_age_of_housing_units",
 ]
+
+# Set to None to keep ALL columns from the API (recommended for model-based feature selection)
+# Set to KEEP_COLS_ORIGINAL to revert to the original 35-column subset
+KEEP_COLS = None
 # ---------------------------
 # API helpers
 # ---------------------------
@@ -81,14 +49,23 @@ def download_csv(year: int, path: str, retries: int = 5) -> None:
     """
     url = api_csv_url(year)
     for attempt in range(1, retries + 1):
-        print(f"Downloading {year} (attempt {attempt})...")
+        print(f"\nDownloading {year} (attempt {attempt})...")
         try:
             with requests.get(url, stream=True, timeout=300) as r:
                 r.raise_for_status()
-                with open(path, "wb") as f:
+                total = int(r.headers.get("content-length", 0))
+                with open(path, "wb") as f, tqdm(
+                    total=total,
+                    unit="B",
+                    unit_scale=True,
+                    unit_divisor=1024,
+                    desc=f"  {year}",
+                    ncols=80,
+                ) as bar:
                     for chunk in r.iter_content(chunk_size=1024 * 1024):
                         if chunk:
                             f.write(chunk)
+                            bar.update(len(chunk))
             return  # success
         except Exception as e:
             print(f"  Error: {e}")
@@ -106,12 +83,16 @@ def clean_one_year(csv_path: str) -> pd.DataFrame:
     and applies basic numeric cleaning.
     """
     chunks = []
+    file_size = os.path.getsize(csv_path)
 
-    for df in pd.read_csv(csv_path, chunksize=200_000, low_memory=False):
-        keep = [c for c in KEEP_COLS if c in df.columns]
-        if keep:
-            df = df[keep]
-        chunks.append(df)
+    with tqdm(total=file_size, unit="B", unit_scale=True, unit_divisor=1024,
+              desc="  Cleaning", ncols=80) as bar:
+        for df in pd.read_csv(csv_path, chunksize=200_000, low_memory=False):
+            if KEEP_COLS is not None:
+                keep = [c for c in KEEP_COLS if c in df.columns]
+                df = df[keep]
+            chunks.append(df)
+            bar.update(df.memory_usage(deep=True).sum())
 
     out = pd.concat(chunks, ignore_index=True)
 
