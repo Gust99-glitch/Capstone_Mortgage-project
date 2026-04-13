@@ -4,3 +4,4 @@ cleaned_data/
 __pycache__/
 *.pyc
 models/
+lasso_feature_importance.png

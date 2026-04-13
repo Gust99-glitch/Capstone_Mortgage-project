@@ -13,6 +13,8 @@ Outputs:
   • models/lasso_feature_importance.png — bar chart of top features
 """
 
+# lasso_selector.py — Stable + Smart Encoding Version
+
 import os
 import warnings
 import joblib
@@ -23,121 +25,109 @@ import matplotlib.pyplot as plt
 from sklearn.linear_model import LogisticRegressionCV
 from sklearn.model_selection import train_test_split
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import (
-    accuracy_score, classification_report, roc_auc_score
-)
+from sklearn.metrics import accuracy_score, classification_report, roc_auc_score
+from joblib import parallel_backend
 
 warnings.filterwarnings("ignore")
 
 # ─────────────────────────────────────────────
-# PATHS
+# SETTINGS
 # ─────────────────────────────────────────────
-DATA_PATH  = "/Users/gustave/Desktop/dtsc/Capstone_Mortgage-project/data_hmda_nc/nc_2019_2024.csv"
+DATA_PATH  = r"C:\Users\jayso\.vscode\Capstone_Mortgage-project\data_hmda_nc\nc_2019_2024.csv"
 OUTPUT_DIR = "models"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
+MAX_ROWS = 1_000_000   # reduce if needed
+
 # ─────────────────────────────────────────────
-# 1) LOAD & FILTER
+# 1) LOAD
 # ─────────────────────────────────────────────
 print("Loading data...")
 df = pd.read_csv(DATA_PATH, low_memory=False)
-print(f"Full dataset: {len(df):,} rows")
 
-# Keep only clear approvals (1) and denials (3)
+if MAX_ROWS and len(df) > MAX_ROWS:
+    df = df.sample(MAX_ROWS, random_state=42)
+    print(f"Sampled down to {len(df):,} rows")
+
+print(f"Dataset: {len(df):,} rows")
+
+# Filter approved/denied
 df = df[df["action_taken"].isin([1, 3])].copy()
 df["approved"] = (df["action_taken"] == 1).astype(int)
-print(f"After filtering approved/denied: {len(df):,} rows")
+
+print(f"After filter: {len(df):,}")
 print(f"Approval rate: {df['approved'].mean():.1%}")
 
 # ─────────────────────────────────────────────
-# 2) DROP LEAKAGE + IDENTIFIERS
+# 2) DROP BAD COLUMNS
 # ─────────────────────────────────────────────
-# These are post-decision fields — the model would never see them at application time
-LEAKAGE = [
-    "action_taken",
-    "interest_rate",
-    "rate_spread",
-    "total_loan_costs",
-    "origination_charges",
-    "total_points_and_fees",
-    "discount_points",
-    "lender_credits",
-    "denial_reason-1", "denial_reason-2", "denial_reason-3", "denial_reason-4",
-    "hoepa_status",
-    "purchaser_type",
-    "initially_payable_to_institution",
-    # AUS results are generated during underwriting (post-application)
-    "aus-1", "aus-2", "aus-3", "aus-4", "aus-5",
+DROP_COLS = [
+    "action_taken","interest_rate","rate_spread","total_loan_costs",
+    "origination_charges","total_points_and_fees","discount_points",
+    "lender_credits","denial_reason-1","denial_reason-2",
+    "denial_reason-3","denial_reason-4","hoepa_status",
+    "purchaser_type","initially_payable_to_institution",
+    "aus-1","aus-2","aus-3","aus-4","aus-5",
+    "lei","census_tract","state_code","derived_msa-md",
+    "activity_year","year"
 ]
 
-# Identifiers / geo codes that are too granular or not useful for dashboard
-IDENTIFIERS = [
-    "lei", "census_tract", "state_code", "derived_msa-md", "activity_year", "year",
-]
-
-# Multi-value race/ethnicity sub-fields — use the cleaner derived_* versions instead
-REDUNDANT = [
-    "applicant_race-2", "applicant_race-3", "applicant_race-4", "applicant_race-5",
-    "applicant_ethnicity-2", "applicant_ethnicity-3", "applicant_ethnicity-4", "applicant_ethnicity-5",
-    "co-applicant_race-2", "co-applicant_race-3", "co-applicant_race-4", "co-applicant_race-5",
-    "co-applicant_ethnicity-2", "co-applicant_ethnicity-3", "co-applicant_ethnicity-4", "co-applicant_ethnicity-5",
-]
-
-DROP_ALL = LEAKAGE + IDENTIFIERS + REDUNDANT
-df.drop(columns=[c for c in DROP_ALL if c in df.columns], inplace=True)
+df.drop(columns=[c for c in DROP_COLS if c in df.columns], inplace=True)
 
 # ─────────────────────────────────────────────
-# 3) ENCODE DTI (ordinal)
+# 3) DTI ENCODING
 # ─────────────────────────────────────────────
 DTI_ORDER = [
-    "<20%", "20%-<30%", "30%-<36%", "36%-<40%",
-    "40%-<45%", "45%-<50%", "50%-60%", ">60%", "Exempt"
-]
-df["debt_to_income_ratio"] = df["debt_to_income_ratio"].map(
-    {v: i for i, v in enumerate(DTI_ORDER)}
-)
-
-# ─────────────────────────────────────────────
-# 4) ONE-HOT ENCODE CATEGORICALS
-# ─────────────────────────────────────────────
-CATEGORICAL_COLS = [
-    "loan_purpose", "loan_type", "occupancy_type",
-    "derived_loan_product_type", "derived_dwelling_category",
-    "conforming_loan_limit", "derived_race", "derived_ethnicity", "derived_sex",
-    "applicant_age", "co-applicant_age",
-    "applicant_credit_score_type", "co-applicant_credit_score_type",
-    "applicant_race-1", "applicant_ethnicity-1",
-    "co-applicant_race-1", "co-applicant_ethnicity-1",
-    "applicant_sex", "co-applicant_sex",
-    "construction_method", "manufactured_home_secured_property_type",
-    "manufactured_home_land_property_interest",
-    "preapproval", "business_or_commercial_purpose",
-    "lien_status", "submission_of_application",
-    "open-end_line_of_credit", "reverse_mortgage",
-    "balloon_payment", "negative_amortization",
-    "interest_only_payment", "other_nonamortizing_features",
+    "<20%","20%-<30%","30%-<36%","36%-<40%",
+    "40%-<45%","45%-<50%","50%-60%",">60%","Exempt"
 ]
 
-# Only encode columns that actually exist in the dataframe
-cat_cols_present = [c for c in CATEGORICAL_COLS if c in df.columns]
-df = pd.get_dummies(df, columns=cat_cols_present, dtype=int, drop_first=True)
+if "debt_to_income_ratio" in df.columns:
+    df["debt_to_income_ratio"] = df["debt_to_income_ratio"].map(
+        {v: i for i, v in enumerate(DTI_ORDER)}
+    )
 
 # ─────────────────────────────────────────────
-# 4b) COERCE REMAINING OBJECT COLUMNS TO NUMERIC
-#     Some HMDA fields (e.g. loan_to_value_ratio) contain 'Exempt'
-#     but aren't categorical — convert them, turning bad strings → NaN
+# 4) SMART ENCODING (FIXED 🚨)
 # ─────────────────────────────────────────────
-obj_cols = [c for c in df.select_dtypes(include="object").columns if c != "approved"]
-if obj_cols:
-    print(f"Coercing {len(obj_cols)} remaining string column(s) to numeric: {obj_cols}")
-    for col in obj_cols:
-        df[col] = pd.to_numeric(df[col], errors="coerce")
+print("\nSelecting categorical columns safely...")
+
+cat_cols = df.select_dtypes(include="object").columns.tolist()
+cat_cols = [c for c in cat_cols if c != "approved"]
+
+LOW_CARD_THRESHOLD = 20
+
+low_card_cols = []
+high_card_cols = []
+
+for col in cat_cols:
+    n_unique = df[col].nunique(dropna=True)
+
+    if n_unique <= LOW_CARD_THRESHOLD:
+        low_card_cols.append(col)
+    else:
+        high_card_cols.append(col)
+
+print(f"Low-cardinality columns (encoded): {len(low_card_cols)}")
+print(f"High-cardinality columns (reduced): {len(high_card_cols)}")
+
+# 🔥 Reduce high-cardinality instead of dropping completely
+TOP_N = 10
+
+for col in high_card_cols:
+    top_values = df[col].value_counts().nlargest(TOP_N).index
+    df[col] = df[col].where(df[col].isin(top_values), "OTHER")
+
+# Now safely encode everything
+final_cat_cols = low_card_cols + high_card_cols
+
+if final_cat_cols:
+    df = pd.get_dummies(df, columns=final_cat_cols, dtype=np.int8, drop_first=True)
 
 # ─────────────────────────────────────────────
 # 5) SPLIT
 # ─────────────────────────────────────────────
-FEATURE_COLS = [c for c in df.columns if c != "approved"]
-X = df[FEATURE_COLS]
+X = df.drop(columns=["approved"])
 y = df["approved"]
 
 X_train, X_test, y_train, y_test = train_test_split(
@@ -145,39 +135,47 @@ X_train, X_test, y_train, y_test = train_test_split(
 )
 
 # ─────────────────────────────────────────────
-# 6) HANDLE MISSING VALUES
+# 6) MISSING VALUES
 # ─────────────────────────────────────────────
-train_medians = X_train.median(numeric_only=True)
-X_train = X_train.fillna(train_medians).fillna(0)
-X_test  = X_test.fillna(train_medians).fillna(0)
+medians = X_train.median(numeric_only=True)
+
+X_train = X_train.fillna(medians).fillna(0)
+X_test  = X_test.fillna(medians).fillna(0)
 
 # ─────────────────────────────────────────────
-# 7) SCALE (required for Lasso to work fairly)
+# 7) SCALE
 # ─────────────────────────────────────────────
 scaler = StandardScaler()
-X_train_sc = scaler.fit_transform(X_train)
-X_test_sc  = scaler.transform(X_test)
+
+X_train_sc = scaler.fit_transform(X_train).astype(np.float32)
+X_test_sc  = scaler.transform(X_test).astype(np.float32)
 
 # ─────────────────────────────────────────────
-# 8) TRAIN LASSO (L1 Logistic Regression)
-#    LogisticRegressionCV auto-picks best C via cross-validation
+# 8) TRAIN MODEL
 # ─────────────────────────────────────────────
-print("\nTraining Lasso (L1 Logistic Regression) with cross-validation...")
+print("\nTraining Lasso...")
 
 model = LogisticRegressionCV(
-    Cs=20,              # 20 candidate regularization strengths to try
-    cv=5,               # 5-fold cross-validation
+    Cs=10,
+    cv=3,
     penalty="l1",
-    solver="liblinear",
+    solver="saga",
     scoring="roc_auc",
     class_weight="balanced",
-    max_iter=1000,
+    max_iter=3000,
     random_state=42,
-    n_jobs=-1,
+    n_jobs=-1
 )
 
-model.fit(X_train_sc, y_train)
-print(f"Best C (regularization): {model.C_[0]:.4f}")
+try:
+    with parallel_backend("threading"):
+        model.fit(X_train_sc, y_train)
+except Exception:
+    print("Fallback to single-core")
+    model.n_jobs = 1
+    model.fit(X_train_sc, y_train)
+
+print(f"Best C: {model.C_[0]:.4f}")
 
 # ─────────────────────────────────────────────
 # 9) EVALUATE
@@ -185,69 +183,40 @@ print(f"Best C (regularization): {model.C_[0]:.4f}")
 y_prob = model.predict_proba(X_test_sc)[:, 1]
 y_pred = model.predict(X_test_sc)
 
-accuracy = accuracy_score(y_test, y_pred)
-roc_auc  = roc_auc_score(y_test, y_prob)
-
-print("\n--- RESULTS ---")
-print(f"Accuracy : {accuracy:.4f}")
-print(f"ROC-AUC  : {roc_auc:.4f}")
-print("\nClassification Report:")
-print(classification_report(y_test, y_pred, target_names=["Denied", "Approved"]))
+print("\nRESULTS")
+print(f"Accuracy: {accuracy_score(y_test, y_pred):.4f}")
+print(f"ROC-AUC : {roc_auc_score(y_test, y_prob):.4f}")
 
 # ─────────────────────────────────────────────
-# 10) EXTRACT SELECTED FEATURES
-#     L1 zeros out unimportant features — survivors are what matter
+# 10) FEATURE IMPORTANCE
 # ─────────────────────────────────────────────
 coefs = model.coef_[0]
+
 feature_df = pd.DataFrame({
-    "feature": FEATURE_COLS,
-    "coefficient": coefs,
+    "feature": X.columns,
+    "coef": coefs
 })
 
-# Keep only features the model kept (non-zero coefficient)
-selected = feature_df[feature_df["coefficient"] != 0].copy()
-selected["abs_coef"] = selected["coefficient"].abs()
-selected = selected.sort_values("abs_coef", ascending=False).reset_index(drop=True)
-
-# Direction label for dashboard use
-selected["direction"] = selected["coefficient"].apply(
-    lambda c: "increases approval odds" if c > 0 else "decreases approval odds"
-)
-
-print(f"\nFeatures selected by Lasso: {len(selected)} out of {len(FEATURE_COLS)} total")
-print(f"Features zeroed out (not important): {len(FEATURE_COLS) - len(selected)}")
-
-print("\nTop 30 most important features:")
-print(selected[["feature", "coefficient", "direction"]].head(30).to_string(index=False))
+selected = feature_df[feature_df["coef"] != 0].copy()
+selected["abs"] = selected["coef"].abs()
+selected = selected.sort_values("abs", ascending=False)
 
 # ─────────────────────────────────────────────
-# 11) SAVE OUTPUTS
+# 11) SAVE
 # ─────────────────────────────────────────────
 selected.to_csv(f"{OUTPUT_DIR}/lasso_selected_features.csv", index=False)
-joblib.dump(model,  f"{OUTPUT_DIR}/lasso_model.joblib")
-joblib.dump(scaler, f"{OUTPUT_DIR}/lasso_scaler.joblib")
-joblib.dump(train_medians.to_dict(), f"{OUTPUT_DIR}/lasso_medians.joblib")
-joblib.dump(FEATURE_COLS, f"{OUTPUT_DIR}/lasso_feature_names.joblib")
-
-print(f"\nSaved selected features → {OUTPUT_DIR}/lasso_selected_features.csv")
+joblib.dump(model, f"{OUTPUT_DIR}/lasso_model.joblib")
 
 # ─────────────────────────────────────────────
 # 12) PLOT
 # ─────────────────────────────────────────────
-top_n = selected.head(30).sort_values("coefficient")
+top = selected.head(30).sort_values("coef")
 
-colors = ["#d73027" if c < 0 else "#1a9850" for c in top_n["coefficient"]]
-
-fig, ax = plt.subplots(figsize=(11, 9))
-bars = ax.barh(top_n["feature"], top_n["coefficient"], color=colors)
-ax.axvline(0, color="black", linewidth=0.8, linestyle="--")
-ax.set_xlabel("Lasso Coefficient (L1 Logistic Regression)")
-ax.set_title(
-    "Top Features Driving Loan Approval / Denial\n"
-    "(Green = increases approval odds | Red = decreases approval odds)"
-)
+plt.figure(figsize=(10,8))
+plt.barh(top["feature"], top["coef"])
+plt.axvline(0)
+plt.title("Top Features (Lasso)")
 plt.tight_layout()
-fig.savefig(f"{OUTPUT_DIR}/lasso_feature_importance.png", dpi=150)
-print(f"Saved plot → {OUTPUT_DIR}/lasso_feature_importance.png")
+plt.savefig(f"{OUTPUT_DIR}/lasso_feature_importance.png")
 
 print("\nDone.")
