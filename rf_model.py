@@ -2,7 +2,7 @@
 rf_model.py — Random Forest Loan Approval Classifier
 =====================================================
 
-Trains a Random Forest model on the NC HMDA merged dataset (2019–2024)
+Trains a Random Forest model on the NC HMDA raw cleaned dataset (2019–2024)
 using the 30 features selected by the Lasso logistic regression (lasso_selector.py).
 
 Why Random Forest?
@@ -46,7 +46,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────
 # PATHS
 # ─────────────────────────────────────────────
-DATA_PATH  = "/Users/gustave/Desktop/dtsc/Capstone_Mortgage-project/cleaned_data/nc_2019_2024_final_merged.csv"
+DATA_PATH  = "/Users/gustave/Desktop/dtsc/Capstone_Mortgage-project/data_hmda_nc/nc_2019_2024.csv"
 OUTPUT_DIR = "models"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
@@ -90,11 +90,63 @@ LASSO_FEATURES = [
 ]
 
 # ─────────────────────────────────────────────
-# 1) LOAD DATA
+# 1) LOAD ONLY NEEDED COLUMNS
 # ─────────────────────────────────────────────
-print("Loading data...")
-df = pd.read_csv(DATA_PATH, low_memory=False)
+# LASSO_FEATURES contains post-encoding names (e.g. derived_race_White),
+# but the raw CSV has the base column names (e.g. derived_race).
+# We load the base columns here, encode them in Section 5, then select
+# the Lasso features by their encoded names.
+BASE_COLS = [
+    "action_taken",
+    "applicant_credit_score_type",
+    "preapproval",
+    "debt_to_income_ratio",
+    "loan_amount",
+    "loan_purpose",
+    "lien_status",
+    "loan_term",
+    "loan_to_value_ratio",
+    "reverse_mortgage",
+    "open-end_line_of_credit",
+    "manufactured_home_secured_property_type",
+    "manufactured_home_land_property_interest",
+    "prepayment_penalty_term",
+    "intro_rate_period",
+    "derived_race",
+    "derived_dwelling_category",
+    "applicant_age",
+    "co-applicant_age",
+    "co-applicant_sex",
+    "co-applicant_sex_observed",
+    "co-applicant_ethnicity_observed",
+    "tract_to_msa_income_percentage",
+    "ffiec_msa_md_median_family_income",
+]
+
+print("Loading data (selected columns only)...")
+df = pd.read_csv(DATA_PATH, usecols=lambda c: c in BASE_COLS, low_memory=False)
 print(f"Loaded {len(df):,} rows, {df.shape[1]} columns")
+
+# ─────────────────────────────────────────────
+# 1b) FILTER TO APPROVED / DENIED ONLY
+# ─────────────────────────────────────────────
+# action_taken == 1 → loan originated (approved)
+# action_taken == 3 → application denied
+# All other values (withdrawn, incomplete, etc.) are excluded because they
+# don't represent a clear approval/denial decision.
+df = df[df["action_taken"].isin([1, 3])].copy()
+df["approved"] = (df["action_taken"] == 1).astype(int)
+print(f"After filtering approved/denied: {len(df):,} rows")
+print(f"Approval rate: {df['approved'].mean():.1%}")
+
+# ─────────────────────────────────────────────
+# 1c) SAMPLE TO PREVENT MEMORY CRASH
+# ─────────────────────────────────────────────
+# 500k rows is enough for stable, representative model training.
+MAX_ROWS = 500_000
+if len(df) > MAX_ROWS:
+    df = df.sample(MAX_ROWS, random_state=42)
+    print(f"Sampled down to {len(df):,} rows")
 
 # ─────────────────────────────────────────────
 # 2) DROP LEAKAGE COLUMNS
@@ -139,18 +191,29 @@ if "debt_to_income_ratio" in df.columns:
 df.replace([np.inf, -np.inf], np.nan, inplace=True)
 
 # ─────────────────────────────────────────────
-# 5) ONE-HOT ENCODE CATEGORICALS
+# 5) ONE-HOT ENCODE CATEGORICALS (targeted — only needed dummies)
 # ─────────────────────────────────────────────
-# Encode all remaining string columns so their values become binary columns.
-# This produces named columns like derived_race_White, loan_term_Exempt, etc.
-# drop_first=True avoids perfect multicollinearity (dummy variable trap).
-cat_cols = [
-    c for c in df.select_dtypes(include="object").columns
-    if c != "approved"
-]
+# Instead of get_dummies on all object columns (which creates a huge wide
+# DataFrame before we can drop anything), we manually create only the specific
+# dummy columns that appear in LASSO_FEATURES. This avoids the memory spike
+# that was killing the process on machines with limited RAM.
 
-if cat_cols:
-    df = pd.get_dummies(df, columns=cat_cols, dtype=int, drop_first=True)
+def _make_targeted_dummies(frame, lasso_features):
+    """Create only the dummy columns referenced in lasso_features."""
+    object_cols = set(frame.select_dtypes(include="object").columns) - {"approved"}
+
+    for feat in lasso_features:
+        for col in object_cols:
+            prefix = col + "_"
+            if feat.startswith(prefix):
+                value = feat[len(prefix):]
+                frame[feat] = (frame[col] == value).astype(np.int8)
+                break
+
+    frame.drop(columns=list(object_cols), inplace=True)
+    return frame
+
+df = _make_targeted_dummies(df, LASSO_FEATURES)
 
 # ─────────────────────────────────────────────
 # 6) SELECT LASSO FEATURES
