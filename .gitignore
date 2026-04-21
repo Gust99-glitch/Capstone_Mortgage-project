@@ -5,3 +5,6 @@ __pycache__/
 *.pyc
 models/
 lasso_feature_importance.png
+charts/
+synthetic_results.csv
+.DS_Store

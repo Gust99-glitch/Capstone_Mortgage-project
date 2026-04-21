@@ -1,0 +1,432 @@
+================================================================================
+  NC HMDA LOAN APPROVAL MODELS — FULL SUMMARY
+  North Carolina HMDA Data, 2019–2024
+================================================================================
+
+--------------------------------------------------------------------------------
+1. PROJECT OVERVIEW
+--------------------------------------------------------------------------------
+
+This project trains machine learning models to predict whether a mortgage loan
+application will be approved or denied, using data from the Home Mortgage
+Disclosure Act (HMDA) for the state of North Carolina, covering years 2019–2024.
+
+The goal is twofold:
+  1. Build accurate classifiers for loan approval prediction
+  2. Analyze which features drive approval/denial decisions (fairness analysis)
+
+--------------------------------------------------------------------------------
+2. DATA PIPELINE
+--------------------------------------------------------------------------------
+
+RAW DATA:
+  Source      : FFIEC HMDA API
+  Coverage    : North Carolina, 2019–2024
+  Total rows  : ~2.7 million loan applications
+
+TARGET VARIABLE:
+  action_taken == 1  →  Approved (label = 1)
+  action_taken == 3  →  Denied   (label = 0)
+  All other values (withdrawn, incomplete, etc.) are excluded.
+
+APPROVAL RATE:
+  79.9% approved  /  20.1% denied
+  This class imbalance is handled via class_weight="balanced" (RF)
+  and scale_pos_weight (XGBoost).
+
+FEATURE SELECTION:
+  Features were pre-selected using Lasso Logistic Regression (lasso_selector.py),
+  which identified the most predictive columns by assigning non-zero coefficients.
+  The 24 base columns selected map to 47 features after one-hot encoding.
+
+DATA PREPARATION (merge_24.py):
+  - Loaded approved and denied CSV files separately
+  - Added binary label: approved=1, denied=0
+  - Dropped action_taken (leakage) and activity_year (metadata)
+  - Combined into: cleaned_data/nc_2019_2024_combined_24_features.csv
+
+FINAL DATASET:
+  File      : cleaned_data/nc_2019_2024_combined_24_features.csv
+  Rows      : 2,765,974
+  Columns   : 24 base features + 1 target (approved)
+
+--------------------------------------------------------------------------------
+3. FEATURE ENGINEERING
+--------------------------------------------------------------------------------
+
+24 BASE COLUMNS:
+  derived_dwelling_category, derived_race, preapproval, loan_purpose,
+  lien_status, reverse_mortgage, open-end_line_of_credit, loan_amount,
+  loan_to_value_ratio, loan_term, prepayment_penalty_term, intro_rate_period,
+  manufactured_home_secured_property_type, manufactured_home_land_property_interest,
+  debt_to_income_ratio, applicant_credit_score_type, co-applicant_ethnicity_observed,
+  co-applicant_sex, co-applicant_sex_observed, applicant_age, co-applicant_age,
+  ffiec_msa_md_median_family_income, tract_to_msa_income_percentage
+
+ENCODING STEPS:
+  1. DTI Ordinal Encoding:
+       debt_to_income_ratio is a string range (e.g. "30%-<36%").
+       Mapped to ordered integers 0–8 so the model treats it as a numeric
+       risk scale rather than unrelated categories.
+       Order: <20%(0), 20%-<30%(1), 30%-<36%(2), 36%-<40%(3),
+              40%-<45%(4), 45%-<50%(5), 50%-60%(6), >60%(7), Exempt(8)
+
+  2. One-Hot Encoding:
+       4 categorical columns were one-hot encoded:
+         - derived_dwelling_category  →  multiple binary columns
+         - derived_race               →  multiple binary columns
+         - applicant_age              →  multiple binary columns
+         - co-applicant_age           →  multiple binary columns
+
+  3. Column Name Sanitization (XGBoost only):
+       XGBoost forbids [, ], < and > in feature names.
+       Characters replaced with underscore (e.g. applicant_age_<25
+       becomes applicant_age__25).
+
+AFTER ENCODING:
+  Total features used for training: 47
+
+TRAIN / TEST SPLIT:
+  80% training  →  2,212,779 rows
+  20% testing   →    553,195 rows
+  stratify=y ensures equal approval/denial ratio in both sets
+
+MISSING VALUE IMPUTATION:
+  Training set medians computed and applied to both train and test.
+  Any remaining NaN filled with 0.
+
+--------------------------------------------------------------------------------
+4. MODEL 1 — RANDOM FOREST
+--------------------------------------------------------------------------------
+
+FILE    : rf_model.py
+OUTPUTS : models/rf_model.joblib
+          models/rf_feature_names.joblib
+          models/rf_train_medians.joblib
+          models/rf_feature_importance.png
+          models/rf_metrics.json
+
+WHY RANDOM FOREST:
+  Random Forest builds hundreds of independent decision trees and averages
+  their predictions. Unlike Lasso (linear), it captures non-linear patterns
+  (e.g., DTI risk that spikes sharply above 50%, not linearly). It is robust
+  to outliers and does not require feature scaling.
+
+HYPERPARAMETERS:
+  n_estimators    = 400     (400 trees — more trees = more stable predictions)
+  max_depth       = None    (trees grow fully, controlled by min_samples_leaf)
+  min_samples_leaf= 4       (each leaf needs at least 4 samples — prevents overfit)
+  max_features    = "sqrt"  (each split considers sqrt(47) ≈ 7 features)
+  class_weight    = "balanced" (automatically adjusts for 80/20 class imbalance)
+  random_state    = 42
+  n_jobs          = -1      (uses all CPU cores)
+
+RESULTS:
+  Optimal Threshold : 0.596  (tuned via Youden's J on ROC curve)
+  Accuracy          : 0.9523  (95.23%)
+  ROC-AUC           : 0.9836  (98.36%)
+
+  Classification Report:
+                  Precision   Recall   F1-Score   Support
+    Denied (0)     0.87        0.90      0.88      111,361
+    Approved (1)   0.97        0.97      0.97      441,834
+    Accuracy                             0.95      553,195
+    Macro Avg      0.92        0.93      0.93
+    Weighted Avg   0.95        0.95      0.95
+
+TOP 20 FEATURES (by Mean Decrease in Impurity):
+  1.  co-applicant_age_9999                                      0.2987
+  2.  co-applicant_age_Missing                                   0.2195
+  3.  debt_to_income_ratio                                       0.1339
+  4.  loan_to_value_ratio                                        0.0448
+  5.  co-applicant_sex                                           0.0350
+  6.  co-applicant_sex_observed                                  0.0336
+  7.  loan_amount                                                0.0325
+  8.  co-applicant_ethnicity_observed                            0.0320
+  9.  loan_purpose                                               0.0236
+  10. tract_to_msa_income_percentage                             0.0176
+  11. applicant_credit_score_type                                0.0168
+  12. ffiec_msa_md_median_family_income                          0.0137
+  13. loan_term                                                  0.0123
+  14. manufactured_home_land_property_interest                   0.0095
+  15. lien_status                                                0.0087
+  16. derived_dwelling_category_Single Family (1-4 Units):Manufactured  0.0084
+  17. open-end_line_of_credit                                    0.0083
+  18. manufactured_home_secured_property_type                    0.0083
+  19. intro_rate_period                                          0.0058
+  20. derived_dwelling_category_Single Family (1-4 Units):Site-Built    0.0055
+
+--------------------------------------------------------------------------------
+5. MODEL 2 — XGBOOST
+--------------------------------------------------------------------------------
+
+FILE    : xgboost_model.py
+OUTPUTS : models/xgb_model.joblib
+          models/xgb_feature_names.joblib
+          models/xgb_train_medians.joblib
+          models/xgb_feature_importance.png
+          models/xgb_metrics.json
+
+WHY XGBOOST:
+  XGBoost is a gradient boosting algorithm — it builds trees sequentially,
+  where each new tree corrects the mistakes of the previous one. This often
+  outperforms Random Forest on structured/tabular data. It is widely used in
+  real-world credit and lending models due to its speed and accuracy.
+
+HYPERPARAMETERS:
+  n_estimators      = 500    (500 sequential boosting rounds)
+  max_depth         = 6      (limits tree depth to control overfitting)
+  learning_rate     = 0.05   (small steps so each tree makes modest corrections)
+  subsample         = 0.8    (each tree sees 80% of rows — adds randomness)
+  colsample_bytree  = 0.8    (each tree sees 80% of features — adds randomness)
+  min_child_weight  = 5      (minimum sum of instance weight per leaf)
+  gamma             = 0.1    (minimum loss reduction required to split a node)
+  scale_pos_weight  = denied_count / approved_count  (handles class imbalance)
+  tree_method       = "hist" (histogram-based — much faster and lower memory)
+  eval_metric       = "logloss"
+  random_state      = 42
+  n_jobs            = -1
+
+RESULTS:
+  Optimal Threshold : 0.500
+  Accuracy          : 0.9539  (95.39%)
+  ROC-AUC           : 0.9836  (98.36%)
+
+  Classification Report:
+                  Precision   Recall   F1-Score   Support
+    Denied (0)     0.88        0.89      0.89      111,361
+    Approved (1)   0.97        0.97      0.97      441,834
+    Accuracy                             0.95      553,195
+    Macro Avg      0.93        0.93      0.93
+    Weighted Avg   0.95        0.95      0.95
+
+TOP 20 FEATURES (by XGBoost Importance Score):
+  1.  co-applicant_age_9999                                      0.6192
+  2.  co-applicant_age_Missing                                   0.1840
+  3.  co-applicant_sex_observed                                  0.0995
+  4.  debt_to_income_ratio                                       0.0240
+  5.  co-applicant_ethnicity_observed                            0.0160
+  6.  manufactured_home_secured_property_type                    0.0074
+  7.  co-applicant_sex                                           0.0053
+  8.  reverse_mortgage                                           0.0044
+  9.  manufactured_home_land_property_interest                   0.0042
+  10. derived_race_White                                         0.0032
+  11. preapproval                                                0.0031
+  12. derived_dwelling_category_Single Family (1-4 Units):Manufactured  0.0029
+  13. loan_purpose                                               0.0027
+  14. derived_race_Black or African American                     0.0027
+  15. loan_to_value_ratio                                        0.0026
+  16. loan_amount                                                0.0019
+  17. open-end_line_of_credit                                    0.0019
+  18. derived_dwelling_category_Single Family (1-4 Units):Site-Built    0.0018
+  19. prepayment_penalty_term                                    0.0015
+  20. co-applicant_age_8888                                      0.0015
+
+--------------------------------------------------------------------------------
+6. MODEL COMPARISON
+--------------------------------------------------------------------------------
+
+                    OLD MODELS (30 features)     NEW MODELS (24 features)
+                    ------------------------     ------------------------
+  RF  Accuracy      0.7881                       0.9523   (+16.4%)
+  RF  ROC-AUC       0.8411                       0.9836   (+14.2%)
+  XGB Accuracy      0.7973                       0.9539   (+15.7%)
+  XGB ROC-AUC       0.8432                       0.9836   (+14.0%)
+
+WHY SUCH A BIG IMPROVEMENT:
+  1. Full dataset used — old models sampled 500,000 rows to avoid memory issues.
+     New models train on all 2,765,974 rows (5.5x more data).
+  2. Cleaner input — approved/denied data was pre-filtered and pre-filled,
+     removing noise from other action_taken categories.
+  3. Better hyperparameters — RF increased to 400 trees; XGBoost added
+     min_child_weight and gamma for better regularization.
+
+WINNER:
+  XGBoost wins on accuracy (0.9539 vs 0.9523).
+  Both models tie on ROC-AUC (0.9836).
+  XGBoost is preferred for deployment due to slightly higher precision on
+  denied applications (0.88 vs 0.87) — important for fairness analysis.
+
+--------------------------------------------------------------------------------
+7. KEY FINDINGS — FEATURE IMPORTANCE
+--------------------------------------------------------------------------------
+
+  co-applicant_age_9999 (NO CO-APPLICANT):
+    The single strongest predictor in both models. Value 9999 indicates the
+    applicant has no co-applicant (solo application). Joint applications are
+    approved at significantly higher rates — likely because two income sources
+    reduce lender risk. This is the most important structural factor.
+
+  co-applicant_age_Missing:
+    Similar to above — missing co-applicant info also signals a solo applicant.
+    Combined, these two features dominate both models.
+
+  debt_to_income_ratio:
+    The #3 feature in RF and #4 in XGBoost. Classic lending risk factor —
+    higher DTI means more of a borrower's income is already committed to debt.
+    The ordinal encoding (0–8 scale) worked well for capturing this risk gradient.
+
+  derived_race_White / derived_race_Black or African American:
+    Both appear in XGBoost top 20 at low but nonzero importance (0.003).
+    Race should ideally have zero importance in a fair model. Their presence
+    — even at low levels — is a key fairness finding for the capstone:
+    the model has learned some racial signal from the data, reflecting
+    real-world disparities in the HMDA dataset.
+
+  loan_to_value_ratio, loan_amount, loan_purpose:
+    Standard financial risk indicators — higher LTV and larger loans carry
+    more risk, as expected. Consistent across both models.
+
+--------------------------------------------------------------------------------
+8. THRESHOLD TUNING
+--------------------------------------------------------------------------------
+
+  Instead of using the default 0.5 decision threshold, both models use
+  Youden's J statistic to find the optimal threshold on the ROC curve:
+
+    Youden's J = TPR - FPR  (maximize True Positive Rate minus False Positive Rate)
+
+  RF  optimal threshold: 0.596  (shifted right — model is conservative,
+                                  requires higher confidence to predict approval)
+  XGB optimal threshold: 0.500  (default threshold already optimal for XGBoost)
+
+--------------------------------------------------------------------------------
+9. OUTPUT FILES
+--------------------------------------------------------------------------------
+
+  models/rf_model.joblib            — Trained Random Forest model
+  models/rf_feature_names.joblib    — List of 47 feature names
+  models/rf_train_medians.joblib    — Training medians for imputing new data
+  models/rf_feature_importance.png  — Top 20 feature importance bar chart
+  models/rf_metrics.json            — Accuracy, ROC-AUC, threshold (JSON)
+
+  models/xgb_model.joblib           — Trained XGBoost model
+  models/xgb_feature_names.joblib   — List of 47 feature names
+  models/xgb_train_medians.joblib   — Training medians for imputing new data
+  models/xgb_feature_importance.png — Top 20 feature importance bar chart
+  models/xgb_metrics.json           — Accuracy, ROC-AUC, threshold (JSON)
+
+--------------------------------------------------------------------------------
+10. SYNTHETIC APPLICANT TEST — FAIRNESS & RISK ANALYSIS
+--------------------------------------------------------------------------------
+
+To evaluate model behavior on controlled scenarios, synthetic applicant profiles
+were created and run through both models (synthetic_test.py). Two test scenarios
+were designed: a fairness test (same financials, race varies) and a risk test
+(same race, financial profile varies).
+
+RAW RESULTS:
+  Scenario                          Race                          RF%    RF       XGB%   XGB
+  ─────────────────────────────────────────────────────────────────────────────────────────
+  Fairness — Low Risk               White                         90.0   APPROVED 86.5   APPROVED
+  Fairness — Low Risk               Black or African American     81.2   APPROVED 69.7   APPROVED
+  Fairness — Low Risk               Asian                         85.4   APPROVED 77.4   APPROVED
+  Fairness — Low Risk               American Indian/Alaska Native 80.0   APPROVED 75.8   APPROVED
+
+  Fairness — Medium Risk            White                          6.0   DENIED    0.0   DENIED
+  Fairness — Medium Risk            Black or African American      8.5   DENIED    0.0   DENIED
+  Fairness — Medium Risk            Asian                          9.2   DENIED    0.0   DENIED
+  Fairness — Medium Risk            American Indian/Alaska Native  9.9   DENIED    0.0   DENIED
+
+  Fairness — High Risk              White                          7.6   DENIED    0.0   DENIED
+  Fairness — High Risk              Black or African American      7.2   DENIED    0.0   DENIED
+  Fairness — High Risk              Asian                          6.6   DENIED    0.0   DENIED
+  Fairness — High Risk              American Indian/Alaska Native  8.3   DENIED    0.0   DENIED
+
+  Risk — DTI <20%,  Joint           White                         90.0   APPROVED 86.5   APPROVED
+  Risk — DTI 30-36%, Joint          White                          7.4   DENIED    1.4   DENIED
+  Risk — DTI 45-50%, Solo           White                         14.4   DENIED    0.0   DENIED
+  Risk — DTI >60%,  Solo            White                          5.4   DENIED    0.0   DENIED
+
+FINDING 1 — RACIAL GAP IN LOW RISK PROFILES (most important):
+  All four low-risk profiles were given identical financial characteristics:
+    - DTI: <20%
+    - Loan Amount: $200,000
+    - LTV: 80%
+    - Joint application (co-applicant present)
+    - Same income, same loan purpose, same property type
+
+  Despite identical financials, approval probabilities differed by race:
+
+    Model          White    Asian    Black    Native American
+    ───────────────────────────────────────────────────────
+    Random Forest   90.0%   85.4%   81.2%       80.0%
+    XGBoost         86.5%   77.4%   69.7%       75.8%
+
+  Racial Gaps vs White:
+    Random Forest  → Black: -8.8%  |  Asian: -4.6%  |  Native: -10.0%
+    XGBoost        → Black: -16.8% |  Asian: -9.1%  |  Native: -10.7%
+
+  This means the models learned racial signal from the historical HMDA data.
+  Even when two applicants are financially identical, race influences the
+  predicted approval probability. This reflects real-world lending disparities
+  embedded in the training data — not something the model invented, but a
+  pattern it learned from decades of documented inequity in mortgage lending.
+
+  XGBoost shows a larger racial gap than Random Forest, particularly for
+  Black applicants (16.8% gap vs 8.8% in RF). This is a key reason why
+  Random Forest is preferred for the application — it produces more equitable
+  probability estimates at the margins.
+
+FINDING 2 — DTI IS A CLIFF, NOT A SLOPE:
+  For a White applicant with a joint application:
+    DTI <20%     →  90.0% approval probability → APPROVED  (RF)
+    DTI 30-36%   →   7.4% approval probability → DENIED    (RF)
+
+  How to read these numbers:
+    90.0% means the model is 90% confident the loan should be APPROVED.
+     7.4% means the model is only 7.4% confident it should be approved —
+          in other words, 92.6% confident it should be DENIED.
+    The RF threshold is 59.6%, so anything below that = DENIED.
+
+  A modest DTI increase (from <20% to 30-36%) drops the approval confidence
+  from 90% down to 7.4% — a near-certain approval becomes a near-certain
+  denial, even with a co-applicant present. The model treats DTI as a hard
+  cutoff rather than a gradual risk factor. This aligns with real lender
+  behavior — most conventional loans require DTI under 36%.
+
+FINDING 3 — RACE MATTERS MOST AT THE MARGINS:
+  In medium and high risk profiles, all applicants are denied regardless of
+  race (probabilities 0-10% across all groups). Race has minimal effect when
+  the financial profile is clearly too risky. The racial gap only appears in
+  borderline or low-risk cases — where the model is less certain and historical
+  bias in the training data has more influence on the outcome.
+
+FINDING 4 — XGBOOST IS TOO AGGRESSIVE ON DENIALS:
+  XGBoost assigns 0.0% probability to almost all medium and high risk profiles.
+  This is unrealistically extreme — in practice, some of these applications would
+  be approved. Random Forest gives more nuanced probabilities (6–15%) for the same
+  profiles, which better reflects real-world lending where borderline cases do
+  sometimes get approved. This makes Random Forest more suitable for the
+  application, as it provides more meaningful and interpretable probability scores.
+
+RECOMMENDED MODEL FOR APPLICATION: Random Forest
+  Reasons:
+    1. More nuanced denial probabilities (not collapsed to 0%)
+    2. Smaller racial gap in approval predictions (fairer output)
+    3. More interpretable probability scores for end users
+    4. Accuracy nearly identical to XGBoost (0.9523 vs 0.9539)
+
+--------------------------------------------------------------------------------
+11. OUTPUT FILES
+--------------------------------------------------------------------------------
+
+  models/rf_model.joblib            — Trained Random Forest model
+  models/rf_feature_names.joblib    — List of 47 feature names
+  models/rf_train_medians.joblib    — Training medians for imputing new data
+  models/rf_feature_importance.png  — Top 20 feature importance bar chart
+  models/rf_metrics.json            — Accuracy, ROC-AUC, threshold (JSON)
+
+  models/xgb_model.joblib           — Trained XGBoost model
+  models/xgb_feature_names.joblib   — List of 47 feature names
+  models/xgb_train_medians.joblib   — Training medians for imputing new data
+  models/xgb_feature_importance.png — Top 20 feature importance bar chart
+  models/xgb_metrics.json           — Accuracy, ROC-AUC, threshold (JSON)
+
+  synthetic_results.csv             — Full synthetic test results table
+
+================================================================================
+  Generated for: NC HMDA Capstone Project
+  Data: North Carolina HMDA 2019–2024
+  Models trained: Random Forest, XGBoost
+================================================================================

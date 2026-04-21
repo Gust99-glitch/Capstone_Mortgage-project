@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore")
 # ─────────────────────────────────────────────
 # SETTINGS
 # ─────────────────────────────────────────────
-DATA_PATH  = r"C:\Users\jayso\.vscode\Capstone_Mortgage-project\data_hmda_nc\nc_2019_2024.csv"
+DATA_PATH  = "/Users/gustave/Desktop/dtsc/Capstone_Mortgage-project/data_hmda_nc/nc_2019_2024.csv"
 OUTPUT_DIR = "models"
 os.makedirs(OUTPUT_DIR, exist_ok=True)
 
