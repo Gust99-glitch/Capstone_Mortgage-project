@@ -34,7 +34,7 @@ with HeatMapTab:
     st.header("A Geographic View of NC Loans")
     file_path_0 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_3panel_county_maps.png"
     if file_path_0.exists():
-        st.image(str(file_path_0))
+        st.image(str(file_path_0), caption="A combined map of all three key loan stats for each county in NC.")
     else:
         st.error(f"File not found: {file_path_0}")
 
