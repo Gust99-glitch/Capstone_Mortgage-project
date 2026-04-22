@@ -50,6 +50,8 @@ with HeatMapTab:
         st.image(str(heatmap_avgL), caption="Heatmap displaying which counties have the highest and lowest average loan amounts.")
     elif option == "Average Rates":
         st.image(str(heatmap_avgR), caption="Heatmap showcasing which counties have the highest and lowest average rates.")
+   
+# OLD CODE BELOW ---------------------------
     # file_path_1 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_total_loans_map.png"
     # if file_path_1.exists():
     #     st.image(str(file_path_1))
