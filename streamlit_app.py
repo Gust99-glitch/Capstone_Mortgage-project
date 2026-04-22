@@ -4,7 +4,7 @@ import numpy as np
 import modal
 import joblib
 import pathlib
-
+import os
 # Loading basic model artifacts
 
 # rf_model = joblib.load("models/rf_model.joblib")
@@ -32,23 +32,41 @@ with ChartsTab:
 
 with HeatMapTab:
     st.header("A Geographic View of NC Loans")
-    file_path_1 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_total_loans_map.png"
-    if file_path_1.exists():
-        st.image(str(file_path_1))
+    file_path_0 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_3panel_county_maps.png"
+    if file_path_0.exists():
+        st.image(str(file_path_0))
     else:
-        st.error(f"File not found: {file_path_1}")
+        st.error(f"File not found: {file_path_0}")
+
+    heatmap_total = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_total_loans_map.png"   
+    heatmap_avgL = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_avg_loan_map.png"
+    heatmap_avgR = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_avg_rate_map.png"
+
+    option = st.selectbox("Select a County Heatmap to View:", ["Total Loans", "Average Loans", "Average Rates"])
     
-    file_path_2 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_avg_loan_map.png"
-    if file_path_2.exists():
-        st.image(str(file_path_2))
-    else:
-        st.error(f"File not found: {file_path_2}")
+    if option == "Total Loans":
+        st.image(str(heatmap_total), caption="Heatmap showing which counties have the most loans and which have the least.")
+    elif option == "Average Loans":
+        st.image(str(heatmap_avgL), caption="Heatmap displaying which counties have the highest and lowest average loan amounts.")
+    elif option == "Average Rates":
+        st.image(str(heatmap_avgR), caption="Heatmap showcasing which counties have the highest and lowest average rates.")
+    # file_path_1 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_total_loans_map.png"
+    # if file_path_1.exists():
+    #     st.image(str(file_path_1))
+    # else:
+    #     st.error(f"File not found: {file_path_1}")
     
-    file_path_3 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_avg_rate_map.png"
-    if file_path_3.exists():
-        st.image(str(file_path_3))
-    else:
-        st.error(f"File not found")
+    # file_path_2 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_avg_loan_map.png"
+    # if file_path_2.exists():
+    #     st.image(str(file_path_2))
+    # else:
+    #     st.error(f"File not found: {file_path_2}")
+    
+    # file_path_3 = pathlib.Path(__file__).parent / r"C:\Users\valni\AppData\Local\Programs\DTSCProjects\Capstone\Capstone_Mortgage-project\charts\nc_avg_rate_map.png"
+    # if file_path_3.exists():
+    #     st.image(str(file_path_3))
+    # else:
+    #     st.error(f"File not found")
 
     # Extra stuff, might work might not streamlit and python do what they want    
     # st.image("charts/nc_total_loan_map.png", caption="Heatmap displaying highest and lowest total loans by county.")
