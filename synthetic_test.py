@@ -2,8 +2,12 @@
 synthetic_test.py — Synthetic Applicant Profile Testing
 ========================================================
 
-Creates realistic borrower profiles and runs them through both
-the RF and XGBoost models to test predictions and fairness.
+Creates realistic borrower profiles and runs them through the
+RF, XGBoost, and Fair (financial only) models.
+
+The bias gap = Fair model prob - Main RF prob.
+A negative gap means the applicant is being penalized beyond
+their financial risk.
 
 Scenarios:
   1. Fairness Test  — same financials, only race changes
@@ -28,8 +32,18 @@ xgb        = joblib.load("models/xgb_model.joblib")
 xgb_feats  = joblib.load("models/xgb_feature_names.joblib")
 xgb_meds   = joblib.load("models/xgb_train_medians.joblib")
 
-RF_THRESHOLD  = 0.596
-XGB_THRESHOLD = 0.500
+fair       = joblib.load("models/fair_model.joblib")
+fair_feats = joblib.load("models/fair_feature_names.joblib")
+fair_meds  = joblib.load("models/fair_train_medians.joblib")
+
+RF_THRESHOLD   = 0.596
+XGB_THRESHOLD  = 0.500
+FAIR_THRESHOLD = 0.570
+
+DEMOGRAPHIC_COLS = [
+    "derived_race", "applicant_age", "co-applicant_age",
+    "co-applicant_sex", "co-applicant_sex_observed", "co-applicant_ethnicity_observed",
+]
 
 # ─────────────────────────────────────────────
 # DTI ENCODING MAP

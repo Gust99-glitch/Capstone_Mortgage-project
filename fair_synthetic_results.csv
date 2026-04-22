@@ -1,0 +1,8 @@
+Scenario,Fair_Model_%,Decision
+"Low Risk  (DTI <20%, LTV 80%, Joint)",82.1,APPROVED
+"Medium Risk (DTI 36-40%, LTV 90%, Solo)",6.4,DENIED
+"High Risk  (DTI >60%, LTV 97%, Solo)",5.3,DENIED
+"Risk — DTI <20%,  Joint",82.1,APPROVED
+"Risk — DTI 30-36%, Joint",5.2,DENIED
+"Risk — DTI 45-50%, Solo",41.8,DENIED
+"Risk — DTI >60%,  Solo",5.8,DENIED
