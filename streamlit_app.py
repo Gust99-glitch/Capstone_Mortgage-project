@@ -163,7 +163,7 @@ HeatMapTab, UserInterfaceTab, ChartsTab = st.tabs([
     "📍 NC Heatmap",
     "💭 Predictive Tool",
     "📈 Research Charting",
-])
+], default = "💭 Predictive Tool")
 
 # ══════════════════════════════════════════════
 # TAB 1 — HEATMAP
@@ -171,6 +171,7 @@ HeatMapTab, UserInterfaceTab, ChartsTab = st.tabs([
 with HeatMapTab:
     st.header("A Geographic View of NC Loans")
 
+    
     maps = {
         "Total Loans by County"       : "charts/nc_total_loans_map.png",
         "Average Loan Amount by County": "charts/nc_avg_loan_map.png",
@@ -178,12 +179,24 @@ with HeatMapTab:
         "3-Panel County Overview"     : "charts/nc_3panel_county_maps.png",
         "Postal Heatmap with Counties": "charts/nc_postal_heatmap_with_counties.png",
     }
+    selector = st.selectbox('Choose one:', options=list(maps.keys()))
 
-    for caption, path in maps.items():
-        if os.path.exists(path):
-            st.image(path, caption=caption, use_container_width=True)
-        else:
-            st.warning(f"Chart not found: {path}")
+    st.image(maps[selector])
+    # for caption, path in maps.items():
+    #     if os.path.exists(path):
+    #         # st.image(path, caption=caption, use_container_width=True)
+    # if selector == "Total Loans by County":
+    #     st.image(maps[0], caption=caption, use_container_width=True)
+    # elif selector == "Average Loan Amount by County":
+    #     st.image(path, caption=caption, use_container_width=True)
+    # elif selector == "Average Interest Rate by County":
+    #     st.image(path, caption=caption, use_container_width=True)
+    # elif selector == "3-Panel County Overview":
+    #     st.image(path, caption=caption, use_container_width=True)
+    # elif selector == "Postal Heatmap with Counties":
+    #     st.image(path, caption=caption, use_container_width=True)
+        # else:
+        #     st.warning(f"Chart not found: {path}")
 
 # ══════════════════════════════════════════════
 # TAB 2 — PREDICTIVE TOOL
@@ -377,7 +390,7 @@ with UserInterfaceTab:
 # TAB 3 — RESEARCH CHARTS
 # ══════════════════════════════════════════════
 with ChartsTab:
-    st.header("What the Research Showed Us")
+    st.header("What the Research Showed Us - Chart Gallery")
 
     st.image(
         "charts/nc_county_loans_rate_scatter.png",
